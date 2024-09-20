@@ -36,7 +36,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $creado = date('Y/m/d');
 
     // Asignar files hacia una variable
-    $imagen = $_FILES['imagen']; 
+    $imagen = $_FILES['imagen'];
     // Validaciones
     if (!$titulo) {
         $errores[] = "Debes añadir un título";
@@ -63,10 +63,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $errores[] = "Debes seleccionar un vendedor";
     }
 
-    // Validar por tamaño 1MB máximo.
-    $medida = 1000 * 1000;
+    // Validar por tamaño 2MB máximo.
+    $medida = 2000 * 1000;
     if ($imagen['size'] > $medida) {
-        echo "La imagen es muy pesada"; 
+        echo "La imagen es muy pesada";
     }
 
     // Revisar que el array de errores esté vacío
@@ -74,22 +74,51 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         /* Subida de archivos */
         // Crear Carpeta
+        // Crear Carpeta de imágenes si no existe
         $carpetaImagenes = '../../imagenes';
-        if (is_dir(!$carpetaImagenes)) {
-            mkdir($carpetaImagenes);
+        if (!is_dir($carpetaImagenes)) {
+            mkdir($carpetaImagenes, 0755, true); // Carpeta con permisos seguros
         }
 
-        exit;
+        // Validar tamaño del archivo (máximo 2MB)
+        $tamañoMaximo = 2 * 1024 * 1024; // 2 MB
+        if ($imagen['size'] > $tamañoMaximo) {
+            echo "El archivo es demasiado grande.";
+            exit;
+        }
+
+        // Validar tipo MIME del archivo
+        $tipoArchivo = mime_content_type($imagen['tmp_name']);
+        $extensionesPermitidas = ['image/jpeg', 'image/png', 'image/gif'];
+
+        if (!in_array($tipoArchivo, $extensionesPermitidas)) {
+            echo "Formato de archivo no permitido.";
+            exit;
+        }
+
+        // Generar un nombre de archivo único
+        $extension = pathinfo($imagen['name'], PATHINFO_EXTENSION);
+        $nombreArchivo = uniqid() . '.' . $extension;
+
+        // Mover el archivo subido a la carpeta segura
+        if (move_uploaded_file($imagen['tmp_name'], $carpetaImagenes . "/" . $nombreArchivo)) {
+            echo "Subido correctamente";
+        } else {
+            echo "Hubo un error al subir el archivo.";
+        }
+
+
+        // exit;
 
         // INSERTAR DATOS
-        $query = "INSERT INTO propiedades (titulo, precio, imagen, descripcion, habitaciones, wc, estacionamiento, creado, vendedores_id) VALUES ('$titulo', '$precio', '$imagen', '$descripcion', '$habitaciones', '$wc', '$estacionamiento', '$creado', '$vendedor_id')";
+        $query = "INSERT INTO propiedades (titulo, precio, imagen, descripcion, habitaciones, wc, estacionamiento, creado, vendedores_id) VALUES ('$titulo', '$precio', '$nombreArchivo', '$descripcion', '$habitaciones', '$wc', '$estacionamiento', '$creado', '$vendedor_id')";
 
         $resultado = mysqli_query($db, $query);
         if (!$resultado) {
             echo "No se pudo insertar";
-        }else{
+        } else {
             // Redireccionar al usuario
-            header('Location: /admin');
+            header('Location: /admin?resultado=1');
         }
     }
 }
