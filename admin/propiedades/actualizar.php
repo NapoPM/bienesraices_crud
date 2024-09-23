@@ -5,7 +5,9 @@ $id = filter_var($id, FILTER_VALIDATE_INT);
 
 if (!$id) {
     header('Location: /admin');
+    exit;
 }
+
 require '../../includes/funciones.php';
 require '../../includes/config/database.php';
 $db = conectarDB();
@@ -14,7 +16,6 @@ $db = conectarDB();
 $consultaPropiedad = "SELECT * FROM propiedades WHERE id = {$id}";
 $resultadoPropiedad = mysqli_query($db, $consultaPropiedad);
 $propiedad = mysqli_fetch_assoc($resultadoPropiedad);
-
 
 // OBTENER vendedores
 $consulta = "SELECT * FROM vendedores";
@@ -35,16 +36,15 @@ $vendedor_id = $propiedad['vendedores_id'];
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $titulo = mysqli_real_escape_string($db, $_POST['titulo']);
     $precio = mysqli_real_escape_string($db, $_POST['precio']);
-    // $imagen = mysqli_real_escape_string($db, $_POST['imagen']);
     $descripcion = mysqli_real_escape_string($db, $_POST['descripcion']);
     $habitaciones = mysqli_real_escape_string($db, $_POST['habitaciones']);
     $wc = mysqli_real_escape_string($db, $_POST['wc']);
     $estacionamiento = mysqli_real_escape_string($db, $_POST['estacionamiento']);
     $vendedor_id = isset($_POST['vendedor_id']) ? $_POST['vendedor_id'] : null;
-    $creado = date('Y/m/d');
 
     // Asignar files hacia una variable
     $imagen = $_FILES['imagen'];
+
     // Validaciones
     if (!$titulo) {
         $errores[] = "Debes añadir un título";
@@ -52,10 +52,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     if (!$precio) {
         $errores[] = "Debes añadir un precio";
     }
-    if (!$imagen['name'] || $imagen['error']) {
-        $errores[] = "Debes añadir una imagen";
-    }
-    if (strlen($descripcion) < 50) {  // Corregido el paréntesis en la validación de descripción
+
+    if (strlen($descripcion) < 50) {
         $errores[] = "La descripción debe tener al menos 50 caracteres";
     }
     if (!$habitaciones) {
@@ -71,28 +69,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $errores[] = "Debes seleccionar un vendedor";
     }
 
-    // Validar por tamaño 2MB máximo.
-    $medida = 2000 * 1000;
-    if ($imagen['size'] > $medida) {
-        echo "La imagen es muy pesada";
-    }
-
-    // Revisar que el array de errores esté vacío
-    if (empty($errores)) {
-
-        /* Subida de archivos */
-        // Crear Carpeta
-        // Crear Carpeta de imágenes si no existe
-        $carpetaImagenes = '../../imagenes';
-        if (!is_dir($carpetaImagenes)) {
-            mkdir($carpetaImagenes, 0755, true); // Carpeta con permisos seguros
-        }
-
+    if ($imagen['name']) {
         // Validar tamaño del archivo (máximo 2MB)
         $tamañoMaximo = 2 * 1024 * 1024; // 2 MB
         if ($imagen['size'] > $tamañoMaximo) {
-            echo "El archivo es demasiado grande.";
-            exit;
+            $errores[] = "El archivo es demasiado grande.";
         }
 
         // Validar tipo MIME del archivo
@@ -100,33 +81,50 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $extensionesPermitidas = ['image/jpeg', 'image/png', 'image/gif'];
 
         if (!in_array($tipoArchivo, $extensionesPermitidas)) {
-            echo "Formato de archivo no permitido.";
-            exit;
+            $errores[] = "Formato de archivo no permitido.";
+        }
+    }
+
+    // Revisar que el array de errores esté vacío
+    if (empty($errores)) {
+        $imagenDB = $propiedad['imagen']; // Mantener la imagen existente por defecto
+
+        if ($imagen['name']) {
+            // Crear Carpeta de imágenes si no existe
+            $carpetaImagenes = '../../imagenes';
+            if (!is_dir($carpetaImagenes)) {
+                mkdir($carpetaImagenes, 0755, true);
+            }
+
+            // Eliminar la imagen previa si existe
+            if ($propiedad['imagen']) {
+                unlink($carpetaImagenes . '/' . $propiedad['imagen']);
+            }
+
+            // Generar un nombre de archivo único
+            $extension = pathinfo($imagen['name'], PATHINFO_EXTENSION);
+            $nombreArchivo = uniqid() . '.' . $extension;
+
+            // Mover el archivo subido a la carpeta segura
+            if (move_uploaded_file($imagen['tmp_name'], $carpetaImagenes . "/" . $nombreArchivo)) {
+                $imagenDB = $nombreArchivo;
+            } else {
+                $errores[] = "Hubo un error al subir el archivo.";
+            }
         }
 
-        // Generar un nombre de archivo único
-        $extension = pathinfo($imagen['name'], PATHINFO_EXTENSION);
-        $nombreArchivo = uniqid() . '.' . $extension;
+        if (empty($errores)) {
+            // INSERTAR DATOS
+            $query = "UPDATE propiedades SET titulo = '{$titulo}', precio = '{$precio}', imagen = '{$imagenDB}', descripcion = '{$descripcion}', habitaciones = {$habitaciones}, wc = {$wc}, estacionamiento = {$estacionamiento}, vendedores_id = {$vendedor_id} WHERE id = {$id}";
 
-        // Mover el archivo subido a la carpeta segura
-        if (move_uploaded_file($imagen['tmp_name'], $carpetaImagenes . "/" . $nombreArchivo)) {
-            echo "Subido correctamente";
-        } else {
-            echo "Hubo un error al subir el archivo.";
-        }
-
-
-        // exit;
-
-        // INSERTAR DATOS
-        $query = "INSERT INTO propiedades (titulo, precio, imagen, descripcion, habitaciones, wc, estacionamiento, creado, vendedores_id) VALUES ('$titulo', '$precio', '$nombreArchivo', '$descripcion', '$habitaciones', '$wc', '$estacionamiento', '$creado', '$vendedor_id')";
-
-        $resultado = mysqli_query($db, $query);
-        if (!$resultado) {
-            echo "No se pudo insertar";
-        } else {
-            // Redireccionar al usuario
-            header('Location: /admin?resultado=1');
+            $resultado = mysqli_query($db, $query);
+            if (!$resultado) {
+                $errores[] = "No se pudo actualizar la propiedad.";
+            } else {
+                // Redireccionar al usuario
+                header('Location: /admin?resultado=2');
+                exit;
+            }
         }
     }
 }
@@ -144,36 +142,36 @@ incluirTemplate('header');
         </div>
     <?php endforeach; ?>
 
-    <form action="/admin/propiedades/crear.php" class="formulario" method="POST" enctype="multipart/form-data">
+    <form class="formulario" method="POST" enctype="multipart/form-data">
         <fieldset>
             <legend>Información General</legend>
 
             <label for="titulo">Título:</label>
-            <input type="text" name="titulo" id="titulo" placeholder="Título Propiedad" value="<?php echo $titulo ?>">
+            <input type="text" name="titulo" id="titulo" placeholder="Título Propiedad" value="<?php echo htmlspecialchars($titulo); ?>">
 
             <label for="precio">Precio:</label>
-            <input type="number" name="precio" id="precio" placeholder="Precio Propiedad" value="<?php echo $precio ?>">
+            <input type="number" name="precio" id="precio" placeholder="Precio Propiedad" value="<?php echo htmlspecialchars($precio); ?>">
 
             <label for="imagen">Imagen:</label>
-            <input type="file" name="imagen" id="imagen" accept="image/jpeg, image/png">
+            <input type="file" name="imagen" id="imagen" accept="image/jpeg, image/png, image/gif">
 
-            <img src="/imagenes/<?php echo $imagenPropiedad;  ?>" alt="" srcset="" class="imagen-small">
+            <img src="/imagenes/<?php echo htmlspecialchars($imagenPropiedad); ?>" alt="Imagen de la propiedad" class="imagen-small">
             
             <label for="descripcion">Descripción:</label>
-            <textarea name="descripcion" id="descripcion"><?php echo $descripcion ?></textarea>
+            <textarea name="descripcion" id="descripcion"><?php echo htmlspecialchars($descripcion); ?></textarea>
         </fieldset>
 
         <fieldset>
             <legend>Información Propiedad</legend>
 
             <label for="habitaciones">Habitaciones:</label>
-            <input type="number" name="habitaciones" id="habitaciones" placeholder="Ej: 3" min="1" value="<?php echo $habitaciones ?>">
+            <input type="number" name="habitaciones" id="habitaciones" placeholder="Ej: 3" min="1" value="<?php echo htmlspecialchars($habitaciones); ?>">
 
             <label for="baños">Baños:</label>
-            <input type="number" name="wc" id="baños" placeholder="Ej: 2" min="1" value="<?php echo $wc ?>">
+            <input type="number" name="wc" id="baños" placeholder="Ej: 2" min="1" value="<?php echo htmlspecialchars($wc); ?>">
 
             <label for="estacionamiento">Estacionamiento:</label>
-            <input type="number" name="estacionamiento" id="estacionamiento" placeholder="Ej: 4" min="1" value="<?php echo $estacionamiento ?>">
+            <input type="number" name="estacionamiento" id="estacionamiento" placeholder="Ej: 4" min="1" value="<?php echo htmlspecialchars($estacionamiento); ?>">
         </fieldset>
 
         <fieldset>
@@ -181,14 +179,16 @@ incluirTemplate('header');
 
             <select name="vendedor_id">
                 <option value="" selected disabled>--Seleccionar Vendedor--</option>
-                <?php while ($vendedor = mysqli_fetch_assoc($resultado)) : ?>
-                    <option <?php echo $vendedor_id === $vendedor['id'] ? 'selected' : '' ?> value="<?php echo $vendedor['id']; ?>">
-                        <?php echo $vendedor['nombre'] . " " . $vendedor['apellido']; ?>
+                <?php 
+                // Reiniciar el puntero del resultado de vendedores
+                mysqli_data_seek($resultado, 0);
+                while ($vendedor = mysqli_fetch_assoc($resultado)) : ?>
+                    <option <?php echo ($vendedor_id == $vendedor['id']) ? 'selected' : '' ?> value="<?php echo htmlspecialchars($vendedor['id']); ?>">
+                        <?php echo htmlspecialchars($vendedor['nombre'] . " " . $vendedor['apellido']); ?>
                     </option>
                 <?php endwhile; ?>
             </select>
         </fieldset>
-
 
         <input type="submit" value="Actualizar Propiedad" class="boton-verde">
     </form>
